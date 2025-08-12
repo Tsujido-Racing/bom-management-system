@@ -24,6 +24,9 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    # Google OAuth用のCOOP設定を緩和
+    Cross-Origin-Opener-Policy = "same-origin-allow-popups"
+    Cross-Origin-Embedder-Policy = "unsafe-none"
 
 # Firebase設定用の環境変数（Netlifyの管理画面で設定）
 # FIREBASE_API_KEY

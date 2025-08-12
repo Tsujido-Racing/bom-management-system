@@ -11,6 +11,49 @@ let gapi_loaded = false;
 let gis_loaded = false;
 let tokenClient = null;
 
+// リダイレクト認証のトークン処理
+function handleOAuthRedirect() {
+    const hash = window.location.hash;
+    if (hash && hash.includes('access_token')) {
+        const params = new URLSearchParams(hash.substring(1));
+        const accessToken = params.get('access_token');
+        const state = params.get('state');
+        
+        if (accessToken) {
+            // トークンを設定
+            window.gapi.client.setToken({
+                access_token: accessToken
+            });
+            
+            try {
+                const stateData = JSON.parse(decodeURIComponent(state || '{}'));
+                if (stateData.action === 'sheets_import') {
+                    // インポート処理を継続
+                    showAlert('認証に成功しました。データをインポート中...', 'success');
+                    importFromGoogleSheets(stateData.spreadsheetId, stateData.range)
+                        .then(values => {
+                            // インポート処理を実行
+                            const dataRows = values.slice(1); // ヘッダーをスキップ
+                            return importPartsData(dataRows);
+                        })
+                        .then(count => {
+                            showAlert(`${count}件のデータをインポートしました`, 'success');
+                            syncData();
+                        })
+                        .catch(error => {
+                            showAlert('インポートエラー: ' + error.message, 'error');
+                        });
+                }
+            } catch (error) {
+                console.error('State解析エラー:', error);
+            }
+            
+            // URLからハッシュを削除
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    }
+}
+
 // Google API初期化
 async function initializeGoogleAPI() {
     try {
@@ -64,6 +107,9 @@ async function initializeGoogleAPI() {
         await initializeGapiClient();
         initializeGis();
         
+        // リダイレクト認証の処理
+        handleOAuthRedirect();
+        
         return true;
     } catch (error) {
         console.error('Google API初期化エラー:', error);
@@ -108,6 +154,11 @@ function initializeGis() {
             client_id: clientId,
             scope: GOOGLE_SHEETS_CONFIG.SCOPES,
             callback: '', // defined later
+            // COOP エラー対策のための設定
+            ux_mode: 'popup',
+            enable_granular_consent: true,
+            // ポップアップのCOOP設定
+            popup_policy: 'same-origin-allow-popups'
         });
         gis_loaded = true;
     } catch (error) {
@@ -334,6 +385,10 @@ async function importFromGoogleSheets(spreadsheetId, range = 'A:Z') {
                         errorMessage = `クライアントIDが無効です。Google Cloud ConsoleでOAuth設定を確認してください。\n現在のURL「${window.location.origin}」が承認済みオリジンに登録されているか確認してください。`;
                     } else if (resp.error === 'origin_mismatch') {
                         errorMessage = `URLの不一致エラーです。\nGoogle Cloud ConsoleのOAuth設定で「${window.location.origin}」を承認済みオリジンに追加してください。`;
+                    } else if (resp.error === 'access_denied') {
+                        errorMessage = 'アクセスが拒否されました。認証をやり直してください。';
+                    } else if (resp.error === 'popup_closed_by_user') {
+                        errorMessage = 'ポップアップが閉じられました。認証をやり直してください。';
                     }
                     
                     reject(new Error(errorMessage));
@@ -357,10 +412,30 @@ async function importFromGoogleSheets(spreadsheetId, range = 'A:Z') {
                 }
             };
             
-            if (window.gapi.client.getToken() === null) {
-                tokenClient.requestAccessToken({prompt: 'consent'});
-            } else {
-                tokenClient.requestAccessToken({prompt: ''});
+            try {
+                if (window.gapi.client.getToken() === null) {
+                    tokenClient.requestAccessToken({prompt: 'consent'});
+                } else {
+                    tokenClient.requestAccessToken({prompt: ''});
+                }
+            } catch (popupError) {
+                console.warn('ポップアップ認証に失敗、リダイレクト方式に切り替えます:', popupError);
+                
+                // リダイレクト方式にフォールバック
+                const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+                    `client_id=${getGoogleClientId()}&` +
+                    `redirect_uri=${encodeURIComponent(window.location.origin)}&` +
+                    `scope=${encodeURIComponent(GOOGLE_SHEETS_CONFIG.SCOPES)}&` +
+                    `response_type=token&` +
+                    `state=${encodeURIComponent(JSON.stringify({action: 'sheets_import', spreadsheetId, range}))}&` +
+                    `include_granted_scopes=true`;
+                
+                // ユーザーに選択肢を提示
+                if (confirm('ポップアップがブロックされました。新しいタブで認証を続けますか？')) {
+                    window.location.href = authUrl;
+                } else {
+                    reject(new Error('認証がキャンセルされました'));
+                }
             }
         });
     } catch (error) {
