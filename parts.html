@@ -429,6 +429,8 @@
             const searchTerm = document.getElementById('part-search').value.toLowerCase();
             const categoryFilter = document.getElementById('category-filter').value;
             
+            console.log(`filterParts called - グローバルparts: ${parts.length}件`);
+            
             filteredParts = parts;
             
             if (searchTerm) {
@@ -441,6 +443,8 @@
             if (categoryFilter) {
                 filteredParts = filteredParts.filter(part => part.category === categoryFilter);
             }
+            
+            console.log(`フィルター後: ${filteredParts.length}件`);
             
             // ページネーションをリセット
             if (pagination) {
@@ -548,6 +552,9 @@
         
         // 現在のビュー更新関数
         function updateCurrentView() {
+            console.log('updateCurrentView called - 部品一覧を更新します');
+            console.log(`グローバル parts 配列: ${parts.length}件`);
+            filteredParts = parts; // グローバルデータを再同期
             filterParts();
         }
         

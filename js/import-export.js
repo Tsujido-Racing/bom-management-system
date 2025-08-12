@@ -489,6 +489,17 @@ async function handleSheetsImport() {
         // データを再読み込み
         await syncData();
         
+        // 部品ページの場合は直接UIを更新
+        if (typeof filterParts === 'function') {
+            console.log('部品ページのUIを更新中...');
+            filterParts();
+        }
+        
+        // その他のページ向けの更新処理
+        if (typeof updateCurrentView === 'function') {
+            updateCurrentView();
+        }
+        
     } catch (error) {
         console.error('スプレッドシートインポートエラー:', error);
         showAlert('インポートエラー: ' + error.message, 'error');

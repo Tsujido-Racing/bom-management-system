@@ -648,6 +648,12 @@ async function loadInitialData() {
         orders = ordersData;
         
         console.log('初期データを読み込みました');
+        console.log(`読み込まれた部品数: ${parts.length}`);
+        
+        // 現在のページに応じて表示を更新
+        if (typeof updateCurrentView === 'function') {
+            updateCurrentView();
+        }
         
     } catch (error) {
         console.error('初期データの読み込みに失敗しました:', error);
