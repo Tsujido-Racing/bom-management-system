@@ -140,6 +140,11 @@ class Order {
 class DatabaseService {
     static async savePart(part) {
         try {
+            // Firebase未接続の場合はローカルストレージに保存
+            if (!window.db) {
+                return this.savePartToLocalStorage(part);
+            }
+
             if (part.id) {
                 // 更新
                 const partRef = window.doc(window.db, 'parts', part.id);
@@ -158,21 +163,59 @@ class DatabaseService {
                 return docRef.id;
             }
         } catch (error) {
-            console.error('部品の保存に失敗しました:', error);
-            throw error;
+            console.error('部品の保存に失敗しました、ローカルストレージにフォールバックします:', error);
+            return this.savePartToLocalStorage(part);
         }
     }
     
     static async loadParts() {
         try {
+            // Firebase未接続の場合はローカルストレージから読み込み
+            if (!window.db) {
+                return this.loadPartsFromLocalStorage();
+            }
+
             const querySnapshot = await window.getDocs(window.collection(window.db, 'parts'));
             return querySnapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             }));
         } catch (error) {
-            console.error('部品の読み込みに失敗しました:', error);
-            throw error;
+            console.error('部品の読み込みに失敗しました、ローカルストレージから読み込みます:', error);
+            return this.loadPartsFromLocalStorage();
+        }
+    }
+
+    // ローカルストレージ用のメソッド
+    static savePartToLocalStorage(part) {
+        const parts = this.loadPartsFromLocalStorage();
+        
+        if (part.id) {
+            // 更新
+            const index = parts.findIndex(p => p.id === part.id);
+            if (index !== -1) {
+                parts[index] = { ...part, updatedAt: new Date().toISOString() };
+            }
+        } else {
+            // 新規作成
+            part.id = 'local_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            part.createdAt = new Date().toISOString();
+            part.updatedAt = new Date().toISOString();
+            parts.push(part);
+        }
+        
+        localStorage.setItem('bom_parts', JSON.stringify(parts));
+        console.log('部品をローカルストレージに保存しました:', part.partNumber);
+        return part.id;
+    }
+
+    static loadPartsFromLocalStorage() {
+        try {
+            const stored = localStorage.getItem('bom_parts');
+            return stored ? JSON.parse(stored) : [];
+        } catch (error) {
+            console.error('ローカルストレージからの読み込みエラー:', error);
+            return [];
         }
     }
     
@@ -649,6 +692,11 @@ async function loadInitialData() {
         
         console.log('初期データを読み込みました');
         console.log(`読み込まれた部品数: ${parts.length}`);
+        
+        // Firebase接続状態の確認とユーザー通知
+        if (!window.db) {
+            showAlert('Firebase設定が無効です。データはローカルストレージに保存されます。', 'warning');
+        }
         
         // 現在のページに応じて表示を更新
         if (typeof updateCurrentView === 'function') {

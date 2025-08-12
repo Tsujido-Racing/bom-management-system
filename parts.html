@@ -132,20 +132,36 @@
         } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
         import { getAuth } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
         
-        // Firebase設定（ここに実際の設定を入力してください）
+        // Firebase設定を環境変数から取得
         const firebaseConfig = {
-            apiKey: "your-api-key",
-            authDomain: "your-project.firebaseapp.com",
-            projectId: "your-project-id",
-            storageBucket: "your-project.appspot.com",
-            messagingSenderId: "123456789",
-            appId: "your-app-id"
+            apiKey: window.FIREBASE_API_KEY || "your-api-key",
+            authDomain: window.FIREBASE_AUTH_DOMAIN || "your-project.firebaseapp.com",
+            projectId: window.FIREBASE_PROJECT_ID || "your-project-id",
+            storageBucket: window.FIREBASE_STORAGE_BUCKET || "your-project.appspot.com",
+            messagingSenderId: window.FIREBASE_MESSAGING_SENDER_ID || "123456789",
+            appId: window.FIREBASE_APP_ID || "your-app-id"
         };
 
-        // Firebase初期化
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
+        // Firebase設定の検証
+        const isValidConfig = firebaseConfig.projectId !== "your-project-id" && 
+                             firebaseConfig.apiKey !== "your-api-key";
+
+        let db = null;
+        let auth = null;
+
+        if (isValidConfig) {
+            try {
+                // Firebase初期化
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                console.log('Firebase初期化成功');
+            } catch (error) {
+                console.warn('Firebase初期化失敗、オフラインモードで動作します:', error);
+            }
+        } else {
+            console.warn('Firebase設定が無効です。オフラインモードで動作します。');
+        }
 
         // グローバルに設定
         window.db = db;

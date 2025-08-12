@@ -718,6 +718,14 @@ async function importPartsData(rows) {
             const supplier = (row[6] || '').toString().trim();
             const leadTime = parseInt(row[7]) || 0;
             
+            // ヘッダー行をスキップ
+            if (partNumber === '品番' || partName === '部品名' || 
+                partNumber.toLowerCase() === 'partnumber' || partName.toLowerCase() === 'name') {
+                console.log(`行${rowNumber}: ヘッダー行をスキップ`);
+                skippedCount++;
+                continue;
+            }
+
             // 必須項目のチェック
             if (!partNumber || !partName) {
                 console.warn(`行${rowNumber}: 品番または部品名が空です - スキップ`);
