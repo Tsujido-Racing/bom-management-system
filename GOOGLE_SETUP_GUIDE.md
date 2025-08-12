@@ -27,11 +27,15 @@
 3. 名前：任意（例：`BOM Management System`）
 4. **重要**: 承認済みJavaScriptオリジンに以下を追加：
    ```
-   https://your-domain.netlify.app
+   https://your-actual-netlify-url.netlify.app
    http://localhost:3000
    http://localhost:8080
+   http://127.0.0.1:3000
+   http://127.0.0.1:8080
    ```
-5. 作成されたクライアントIDをコピー
+   **注意**: `your-actual-netlify-url`は実際のNetlifyアプリのURLに置き換えてください
+5. **承認済みリダイレクトURI**は空のままにしてください（JavaScript OAuth2フローでは不要）
+6. 作成されたクライアントIDをコピー
 
 ### 5. システムでの設定
 1. 部品マスタページの「Google連携設定」ボタンをクリック
@@ -54,11 +58,15 @@
   - クライアントIDが正しくコピーされているか確認
   - OAuth設定の「承認済みJavaScriptオリジン」を確認
 
-### エラー: "Origin not allowed"
+### エラー: "redirect_uri_mismatch" または "Origin not allowed"
 - **原因**: 現在のURLがOAuth設定で許可されていない
 - **解決**:
-  - Google Cloud ConsoleのOAuth設定で現在のドメインを追加
-  - `https://your-domain.netlify.app`を承認済みオリジンに追加
+  1. 現在アクセスしているURLを確認（例：`https://abc123.netlify.app`）
+  2. Google Cloud ConsoleのOAuth設定で該当URLを追加：
+     - 「APIとサービス」→「認証情報」
+     - OAuth 2.0クライアントIDを選択
+     - 「承認済みJavaScriptオリジン」に実際のURLを追加
+  3. 設定保存後、数分待ってから再試行
 
 ### エラー: "Sheets API not enabled"
 - **原因**: Google Sheets APIが有効化されていない

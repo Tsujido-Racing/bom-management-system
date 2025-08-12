@@ -99,14 +99,26 @@ async function initializeGapiClient() {
 
 function initializeGis() {
     try {
+        const clientId = getGoogleClientId();
+        if (!clientId) {
+            throw new Error('Google Client IDが設定されていません');
+        }
+        
         tokenClient = window.google.accounts.oauth2.initTokenClient({
-            client_id: getGoogleClientId(),
+            client_id: clientId,
             scope: GOOGLE_SHEETS_CONFIG.SCOPES,
             callback: '', // defined later
         });
         gis_loaded = true;
     } catch (error) {
         console.error('Google Identity Services初期化エラー:', error);
+        
+        // クライアントIDの形式チェック
+        const clientId = getGoogleClientId();
+        if (clientId && !clientId.includes('.googleusercontent.com')) {
+            throw new Error(`無効なクライアントID形式です。Google Cloud Consoleから正しいクライアントIDを取得してください。\n現在のURL「${window.location.origin}」がOAuth設定で許可されているか確認してください。`);
+        }
+        
         throw error;
     }
 }
@@ -228,8 +240,24 @@ function showDebugInfo() {
         tokenClient: !!tokenClient
     };
     
-    debugText.textContent = JSON.stringify(debugInfo, null, 2);
+    const formattedDebugInfo = JSON.stringify(debugInfo, null, 2);
+    debugText.textContent = formattedDebugInfo;
     debugOutput.style.display = 'block';
+    
+    // redirect_uri_mismatchエラーの場合の解決方法を表示
+    if (!debugInfo.gapiLoaded || !debugInfo.googleOAuth) {
+        showAlert(`
+⚠️ Google API読み込みエラー
+
+現在のURL: ${debugInfo.origin}
+
+このURLをGoogle Cloud ConsoleのOAuth設定で許可してください：
+1. Google Cloud Console → APIとサービス → 認証情報
+2. OAuth 2.0クライアントIDを選択
+3. 「承認済みJavaScriptオリジン」に追加: ${debugInfo.origin}
+4. 保存後、数分待ってから再試行
+        `.trim(), 'warning');
+    }
 }
 
 // Google接続テスト
@@ -296,7 +324,19 @@ async function importFromGoogleSheets(spreadsheetId, range = 'A:Z') {
         return new Promise((resolve, reject) => {
             tokenClient.callback = async (resp) => {
                 if (resp.error !== undefined) {
-                    reject(resp);
+                    console.error('OAuth認証エラー:', resp);
+                    
+                    // エラータイプに応じたメッセージ
+                    let errorMessage = 'Google認証でエラーが発生しました。';
+                    if (resp.error === 'popup_blocked_by_browser') {
+                        errorMessage = 'ポップアップがブロックされました。ブラウザのポップアップブロック設定を確認してください。';
+                    } else if (resp.error === 'invalid_client') {
+                        errorMessage = `クライアントIDが無効です。Google Cloud ConsoleでOAuth設定を確認してください。\n現在のURL「${window.location.origin}」が承認済みオリジンに登録されているか確認してください。`;
+                    } else if (resp.error === 'origin_mismatch') {
+                        errorMessage = `URLの不一致エラーです。\nGoogle Cloud ConsoleのOAuth設定で「${window.location.origin}」を承認済みオリジンに追加してください。`;
+                    }
+                    
+                    reject(new Error(errorMessage));
                     return;
                 }
                 
@@ -339,10 +379,15 @@ function openSheetsImportModal() {
             </button>
         </div>
         <div class="sheets-import">
-            <div class="alert alert-info">
+                                <div class="alert alert-info">
                 <i class="fas fa-info-circle"></i>
                 Googleスプレッドシートからデータをインポートします。<br>
-                スプレッドシートは共有設定で「リンクを知っている全員が閲覧可能」にしてください。
+                <strong>重要:</strong> スプレッドシートは共有設定で「リンクを知っている全員が閲覧可能」にしてください。<br>
+                <br>
+                <strong>データ形式:</strong><br>
+                • 1行目: ヘッダー（品番、部品名、カテゴリ、メーカー、定価、仕入れ値、発注先、リードタイム）<br>
+                • 空セルがあっても問題ありませんが、品番と部品名は必須です<br>
+                • 価格に「¥」記号が含まれていても自動で除去されます
             </div>
             
             <form id="sheets-import-form">
@@ -410,6 +455,14 @@ async function handleSheetsImport() {
         showAlert('スプレッドシートからデータを読み込み中...', 'info');
         
         const values = await importFromGoogleSheets(spreadsheetId, range);
+        
+        // データの基本チェック
+        if (!values || values.length === 0) {
+            throw new Error('スプレッドシートからデータを読み込めませんでした。範囲設定を確認してください。');
+        }
+        
+        console.log(`スプレッドシートから${values.length}行のデータを読み込みました`);
+        console.log('読み込まれたデータ（最初の5行）:', values.slice(0, 5));
         
         // ヘッダー行をスキップ
         const dataRows = hasHeader ? values.slice(1) : values;
@@ -619,47 +672,96 @@ function parseCSV(text, delimiter = ',') {
 // 部品データインポート
 async function importPartsData(rows) {
     let importedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
     
-    for (const row of rows) {
-        if (row.length < 2) continue; // 最低限の列数チェック
+    console.log(`インポート開始: ${rows.length}行のデータを処理します`);
+    
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNumber = i + 2; // ヘッダー行を考慮した行番号
+        
+        // 空行または最低限のデータがない行をスキップ
+        if (!row || row.length < 2 || (!row[0] && !row[1])) {
+            skippedCount++;
+            continue;
+        }
         
         try {
+            // データのクリーンアップと検証
+            const partNumber = (row[0] || '').toString().trim();
+            const partName = (row[1] || '').toString().trim();
+            const category = (row[2] || 'electronic').toString().trim();
+            const manufacturer = (row[3] || '').toString().trim();
+            
+            // 価格データの処理（¥記号の除去、数値でない場合は0）
+            const cleanPrice = (value) => {
+                if (!value) return 0;
+                const cleanedValue = value.toString().replace(/[¥,円]/g, '').trim();
+                const parsed = parseFloat(cleanedValue);
+                return isNaN(parsed) ? 0 : parsed;
+            };
+            
+            const listPrice = cleanPrice(row[4]);
+            const purchasePrice = cleanPrice(row[5]);
+            const supplier = (row[6] || '').toString().trim();
+            const leadTime = parseInt(row[7]) || 0;
+            
+            // 必須項目のチェック
+            if (!partNumber || !partName) {
+                console.warn(`行${rowNumber}: 品番または部品名が空です - スキップ`);
+                skippedCount++;
+                continue;
+            }
+            
             const part = new Part(
-                row[0] || '', // 品番
-                row[1] || '', // 部品名
-                row[2] || 'electronic', // カテゴリ
-                row[3] || '', // メーカー
-                parseFloat(row[4]) || 0, // 定価
-                parseFloat(row[5]) || 0, // 仕入れ値
-                row[6] || '', // 発注先
-                parseInt(row[7]) || 0  // リードタイム
+                partNumber,
+                partName,
+                category,
+                manufacturer,
+                listPrice,
+                purchasePrice,
+                supplier,
+                leadTime
             );
             
-            if (part.partNumber && part.name) {
-                // 重複チェック
-                const existing = parts.find(p => p.partNumber === part.partNumber);
-                if (existing) {
-                    // 既存データを更新
-                    part.id = existing.id;
-                }
-                
-                const savedId = await DatabaseService.savePart(part);
-                
-                if (!existing) {
-                    part.id = savedId;
-                    parts.push(part);
-                } else {
-                    const index = parts.findIndex(p => p.id === existing.id);
-                    if (index !== -1) {
-                        parts[index] = { ...part, id: existing.id };
-                    }
-                }
-                
-                importedCount++;
+            // 重複チェック
+            const existing = parts.find(p => p.partNumber === part.partNumber);
+            if (existing) {
+                // 既存データを更新
+                part.id = existing.id;
+                console.log(`行${rowNumber}: 既存の部品「${partNumber}」を更新`);
+            } else {
+                console.log(`行${rowNumber}: 新しい部品「${partNumber}」を追加`);
             }
+            
+            const savedId = await DatabaseService.savePart(part);
+            
+            if (!existing) {
+                part.id = savedId;
+                parts.push(part);
+            } else {
+                const index = parts.findIndex(p => p.id === existing.id);
+                if (index !== -1) {
+                    parts[index] = { ...part, id: existing.id };
+                }
+            }
+            
+            importedCount++;
+            
         } catch (error) {
-            console.error('部品データインポートエラー:', error);
+            console.error(`行${rowNumber}のインポートエラー:`, error);
+            errorCount++;
         }
+    }
+    
+    // インポート結果をログ出力
+    console.log(`インポート完了: 成功${importedCount}件、スキップ${skippedCount}件、エラー${errorCount}件`);
+    
+    // ユーザーに詳細な結果を表示
+    if (skippedCount > 0 || errorCount > 0) {
+        const message = `インポート完了\n成功: ${importedCount}件\nスキップ: ${skippedCount}件\nエラー: ${errorCount}件\n\n詳細はコンソールを確認してください。`;
+        showAlert(message, errorCount > 0 ? 'warning' : 'info');
     }
     
     return importedCount;
