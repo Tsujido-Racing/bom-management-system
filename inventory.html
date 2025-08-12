@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>在庫管理 - BOM管理システム</title>
+    <link rel="stylesheet" href="css/common.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- ナビゲーション -->
+        <nav class="navbar">
+            <div class="nav-brand">
+                <h1><i class="fas fa-cogs"></i> BOM管理システム</h1>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="dashboard.html" class="nav-link">ダッシュボード</a></li>
+                <li><a href="parts.html" class="nav-link">部品マスタ</a></li>
+                <li><a href="bom.html" class="nav-link">BOM管理</a></li>
+                <li><a href="inventory.html" class="nav-link active">在庫管理</a></li>
+                <li><a href="quote.html" class="nav-link">見積もり</a></li>
+                <li><a href="orders.html" class="nav-link">発注管理</a></li>
+            </ul>
+            <div class="nav-settings">
+                <button class="btn btn-sm btn-secondary" onclick="syncData()" title="データ同期">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="openGoogleSettingsModal()" title="Google連携設定">
+                    <i class="fab fa-google"></i>
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="openLineSettingsModal()" title="LINE通知設定">
+                    <i class="fas fa-bell"></i>
+                </button>
+            </div>
+        </nav>
+
+        <!-- メインコンテンツ -->
+        <main class="main-content">
+            <div class="page-header">
+                <h1 class="page-title">在庫管理</h1>
+                <div class="page-actions">
+                    <button class="btn btn-secondary" onclick="exportInventory()">
+                        <i class="fas fa-download"></i> エクスポート
+                    </button>
+                    <button class="btn btn-secondary" onclick="openBulkUpdateModal()">
+                        <i class="fas fa-edit"></i> 一括更新
+                    </button>
+                    <button class="btn btn-primary" onclick="openInventoryModal()">
+                        <i class="fas fa-plus"></i> 在庫更新
+                    </button>
+                </div>
+            </div>
+
+            <!-- 在庫サマリー -->
+            <div class="inventory-summary">
+                <div class="summary-card">
+                    <h3>総部品数</h3>
+                    <p id="total-parts">0</p>
+                </div>
+                <div class="summary-card">
+                    <h3>在庫不足</h3>
+                    <p id="low-stock-parts">0</p>
+                </div>
+                <div class="summary-card">
+                    <h3>在庫切れ</h3>
+                    <p id="out-of-stock-parts">0</p>
+                </div>
+                <div class="summary-card">
+                    <h3>総在庫評価額</h3>
+                    <p id="total-value">¥0</p>
+                </div>
+            </div>
+            
+            <!-- 検索・フィルター -->
+            <div class="search-filter">
+                <input type="text" id="inventory-search" placeholder="部品名で検索..." class="search-input">
+                <select id="stock-status-filter" class="filter-select">
+                    <option value="">すべて</option>
+                    <option value="low">在庫不足</option>
+                    <option value="out">在庫切れ</option>
+                    <option value="normal">正常</option>
+                </select>
+                <select id="category-filter" class="filter-select">
+                    <option value="">すべてのカテゴリ</option>
+                    <option value="electronic">電子部品</option>
+                    <option value="mechanical">機械部品</option>
+                    <option value="material">材料</option>
+                </select>
+            </div>
+            
+            <!-- 在庫テーブル -->
+            <div class="table-container">
+                <table id="inventory-table" class="data-table">
+                    <thead>
+                        <tr>
+                            <th>品番</th>
+                            <th>部品名</th>
+                            <th>カテゴリ</th>
+                            <th>現在庫数</th>
+                            <th>最小在庫数</th>
+                            <th>発注点</th>
+                            <th>単価</th>
+                            <th>在庫評価額</th>
+                            <th>最終更新日</th>
+                            <th>ステータス</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventory-tbody">
+                        <!-- 在庫データがここに表示されます -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- ページネーション -->
+            <div id="pagination-container"></div>
+        </main>
+    </div>
+
+    <!-- モーダル -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div id="modal-content" class="modal-content">
+            <!-- モーダル内容がここに動的に生成されます -->
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { 
+            getFirestore, 
+            collection, 
+            doc, 
+            addDoc, 
+            getDocs, 
+            updateDoc, 
+            deleteDoc, 
+            query, 
+            where, 
+            orderBy,
+            serverTimestamp 
+        } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getAuth } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        
+        // Firebase設定（ここに実際の設定を入力してください）
+        const firebaseConfig = {
+            apiKey: "your-api-key",
+            authDomain: "your-project.firebaseapp.com",
+            projectId: "your-project-id",
+            storageBucket: "your-project.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "your-app-id"
+        };
+
+        // Firebase初期化
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // グローバルに設定
+        window.db = db;
+        window.auth = auth;
+        
+        // Firestore関数をグローバルに設定
+        window.collection = collection;
+        window.doc = doc;
+        window.addDoc = addDoc;
+        window.getDocs = getDocs;
+        window.updateDoc = updateDoc;
+        window.deleteDoc = deleteDoc;
+        window.query = query;
+        window.where = where;
+        window.orderBy = orderBy;
+        window.serverTimestamp = serverTimestamp;
+    </script>
+    
+    <script src="js/common.js"></script>
+    <script src="js/import-export.js"></script>
+    <script src="inventory-functions.js"></script>
+    <script>
+        // 在庫管理ページ固有の機能
+        
+        let pagination = null;
+        let filteredInventory = [];
+        
+        // 在庫サマリー更新
+        function updateInventorySummary() {
+            const totalParts = inventory.length;
+            const lowStockParts = inventory.filter(item => item.status === 'low').length;
+            const outOfStockParts = inventory.filter(item => item.status === 'out').length;
+            
+            // 総在庫評価額計算
+            const totalValue = inventory.reduce((total, item) => {
+                const part = parts.find(p => p.id === item.partId);
+                return total + (part ? part.purchasePrice * item.currentStock : 0);
+            }, 0);
+            
+            document.getElementById('total-parts').textContent = totalParts.toLocaleString();
+            document.getElementById('low-stock-parts').textContent = lowStockParts.toLocaleString();
+            document.getElementById('out-of-stock-parts').textContent = outOfStockParts.toLocaleString();
+            document.getElementById('total-value').textContent = `¥${totalValue.toLocaleString()}`;
+        }
+        
+        function renderInventoryTable() {
+            const tbody = document.getElementById('inventory-tbody');
+            
+            if (!pagination) {
+                pagination = new Pagination(filteredInventory, 50);
+            } else {
+                pagination.data = filteredInventory;
+                pagination.totalPages = Math.ceil(filteredInventory.length / pagination.itemsPerPage);
+            }
+            
+            const currentPageData = pagination.getCurrentPageData();
+            
+            if (currentPageData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted">在庫データがありません</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = currentPageData.map(item => {
+                const part = parts.find(p => p.id === item.partId);
+                if (!part) return '';
+                
+                const value = part.purchasePrice * item.currentStock;
+                
+                return `
+                    <tr>
+                        <td>${part.partNumber}</td>
+                        <td>${part.name}</td>
+                        <td>${getCategoryName(part.category)}</td>
+                        <td>${item.currentStock}</td>
+                        <td>${item.minStock}</td>
+                        <td>${item.reorderPoint}</td>
+                        <td>¥${part.purchasePrice.toLocaleString()}</td>
+                        <td>¥${value.toLocaleString()}</td>
+                        <td>${formatDate(item.lastUpdated)}</td>
+                        <td>
+                            <span class="status-badge status-${item.status}">
+                                ${getStatusText(item.status)}
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-secondary" onclick="openInventoryModal('${item.partId}')">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-primary" onclick="openQuickAdjustModal('${item.partId}')">
+                                <i class="fas fa-exchange-alt"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            // ページネーション表示
+            pagination.renderPagination('pagination-container');
+            
+            // サマリー更新
+            updateInventorySummary();
+        }
+        
+        function filterInventory() {
+            const searchTerm = document.getElementById('inventory-search').value.toLowerCase();
+            const statusFilter = document.getElementById('stock-status-filter').value;
+            const categoryFilter = document.getElementById('category-filter').value;
+            
+            filteredInventory = inventory;
+            
+            if (searchTerm) {
+                filteredInventory = filteredInventory.filter(item => {
+                    const part = parts.find(p => p.id === item.partId);
+                    return part && (
+                        part.name.toLowerCase().includes(searchTerm) || 
+                        part.partNumber.toLowerCase().includes(searchTerm)
+                    );
+                });
+            }
+            
+            if (statusFilter) {
+                filteredInventory = filteredInventory.filter(item => item.status === statusFilter);
+            }
+            
+            if (categoryFilter) {
+                filteredInventory = filteredInventory.filter(item => {
+                    const part = parts.find(p => p.id === item.partId);
+                    return part && part.category === categoryFilter;
+                });
+            }
+            
+            // ページネーションをリセット
+            if (pagination) {
+                pagination.currentPage = 1;
+            }
+            
+            renderInventoryTable();
+        }
+        
+        // クイック調整モーダル
+        function openQuickAdjustModal(partId) {
+            const inventoryRecord = inventory.find(i => i.partId === partId);
+            const part = parts.find(p => p.id === partId);
+            
+            if (!inventoryRecord || !part) {
+                showAlert('在庫データが見つかりません', 'error');
+                return;
+            }
+            
+            const modalContent = `
+                <div class="modal-header">
+                    <h3 class="modal-title">在庫調整 - ${part.partNumber}</h3>
+                    <button class="modal-close" onclick="closeModal()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="quick-adjust">
+                    <div class="current-stock">
+                        <h4>現在庫数: ${inventoryRecord.currentStock}</h4>
+                    </div>
+                    
+                    <div class="adjust-buttons">
+                        <button class="btn btn-secondary" onclick="adjustStock('${partId}', -10)">-10</button>
+                        <button class="btn btn-secondary" onclick="adjustStock('${partId}', -1)">-1</button>
+                        <button class="btn btn-secondary" onclick="adjustStock('${partId}', 1)">+1</button>
+                        <button class="btn btn-secondary" onclick="adjustStock('${partId}', 10)">+10</button>
+                    </div>
+                    
+                    <form id="manual-adjust-form">
+                        <div class="form-group">
+                            <label class="form-label">手動調整</label>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <input type="number" id="adjust-amount" class="form-input" placeholder="調整数量">
+                                <button type="submit" class="btn btn-primary">適用</button>
+                            </div>
+                        </div>
+                    </form>
+                    
+                    <div class="form-actions">
+                        <button class="btn btn-secondary" onclick="closeModal()">閉じる</button>
+                    </div>
+                </div>
+            `;
+            
+            showModal(modalContent);
+            
+            document.getElementById('manual-adjust-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const amount = parseInt(document.getElementById('adjust-amount').value);
+                if (amount) {
+                    adjustStock(partId, amount);
+                }
+            });
+        }
+        
+        async function adjustStock(partId, amount) {
+            try {
+                const inventoryRecord = inventory.find(i => i.partId === partId);
+                if (!inventoryRecord) return;
+                
+                const newStock = Math.max(0, inventoryRecord.currentStock + amount);
+                inventoryRecord.updateStock(newStock);
+                
+                await DatabaseService.saveInventory(inventoryRecord);
+                
+                // 表示更新
+                updateCurrentView();
+                
+                const part = parts.find(p => p.id === partId);
+                showAlert(`${part.partNumber}の在庫を${amount > 0 ? '+' : ''}${amount}調整しました（現在: ${newStock}）`, 'success');
+                
+                // モーダル内の表示も更新
+                const currentStockElement = document.querySelector('.current-stock h4');
+                if (currentStockElement) {
+                    currentStockElement.textContent = `現在庫数: ${newStock}`;
+                }
+                
+            } catch (error) {
+                console.error('在庫調整エラー:', error);
+                showAlert('在庫調整に失敗しました', 'error');
+            }
+        }
+        
+        // 一括更新モーダル
+        function openBulkUpdateModal() {
+            const modalContent = `
+                <div class="modal-header">
+                    <h3 class="modal-title">在庫一括更新</h3>
+                    <button class="modal-close" onclick="closeModal()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="bulk-update">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        在庫データをCSVファイルから一括更新できます。
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">CSVファイル</label>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="bulk-csv-file" class="file-input" accept=".csv" required>
+                            <label for="bulk-csv-file" class="file-input-label">
+                                <i class="fas fa-file-csv"></i>
+                                ファイルを選択
+                            </label>
+                        </div>
+                        <small class="form-help">形式: 品番, 在庫数, 最小在庫数, 発注点</small>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>
+                        <button class="btn btn-secondary" onclick="downloadBulkTemplate()">テンプレート</button>
+                        <button class="btn btn-primary" onclick="processBulkUpdate()">更新実行</button>
+                    </div>
+                </div>
+            `;
+            
+            showModal(modalContent);
+            
+            // ファイル選択時の表示更新
+            document.getElementById('bulk-csv-file').addEventListener('change', (e) => {
+                const fileName = e.target.files[0]?.name || 'ファイルを選択';
+                document.querySelector('.file-input-label').innerHTML = `
+                    <i class="fas fa-file-csv"></i>
+                    ${fileName}
+                `;
+            });
+        }
+        
+        function downloadBulkTemplate() {
+            const headers = ['品番', '在庫数', '最小在庫数', '発注点'];
+            const sampleData = inventory.slice(0, 5).map(item => {
+                const part = parts.find(p => p.id === item.partId);
+                return [
+                    part ? part.partNumber : '',
+                    item.currentStock,
+                    item.minStock,
+                    item.reorderPoint
+                ];
+            });
+            
+            exportToCSV([headers, ...sampleData], '在庫一括更新_テンプレート.csv');
+            showAlert('テンプレートファイルをダウンロードしました', 'success');
+        }
+        
+        async function processBulkUpdate() {
+            try {
+                const fileInput = document.getElementById('bulk-csv-file');
+                if (!fileInput.files[0]) {
+                    showAlert('CSVファイルを選択してください', 'warning');
+                    return;
+                }
+                
+                const text = await readFileAsText(fileInput.files[0]);
+                const rows = parseCSV(text);
+                
+                // ヘッダー行をスキップ
+                const dataRows = rows.slice(1);
+                
+                let updatedCount = 0;
+                
+                for (const row of dataRows) {
+                    if (row.length < 2) continue;
+                    
+                    const partNumber = row[0];
+                    const currentStock = parseInt(row[1]) || 0;
+                    const minStock = parseInt(row[2]) || 0;
+                    const reorderPoint = parseInt(row[3]) || 0;
+                    
+                    // 部品IDを検索
+                    const part = parts.find(p => p.partNumber === partNumber);
+                    if (!part) continue;
+                    
+                    // 既存の在庫記録を検索
+                    let inventoryRecord = inventory.find(i => i.partId === part.id);
+                    
+                    if (inventoryRecord) {
+                        inventoryRecord.updateStock(currentStock);
+                        inventoryRecord.updateSettings(minStock, reorderPoint);
+                    } else {
+                        inventoryRecord = new InventoryRecord(part.id, currentStock, minStock, reorderPoint);
+                        inventory.push(inventoryRecord);
+                    }
+                    
+                    await DatabaseService.saveInventory(inventoryRecord);
+                    
+                    if (!inventoryRecord.id) {
+                        inventoryRecord.id = await DatabaseService.saveInventory(inventoryRecord);
+                    }
+                    
+                    updatedCount++;
+                }
+                
+                closeModal();
+                updateCurrentView();
+                showAlert(`${updatedCount}件の在庫データを更新しました`, 'success');
+                
+            } catch (error) {
+                console.error('一括更新エラー:', error);
+                showAlert('一括更新に失敗しました: ' + error.message, 'error');
+            }
+        }
+        
+        // 現在のビュー更新関数
+        function updateCurrentView() {
+            filterInventory();
+        }
+        
+        // 初期化
+        document.addEventListener('DOMContentLoaded', async () => {
+            // データ読み込み
+            await loadInitialData();
+            
+            // 検索フィルターイベント
+            document.getElementById('inventory-search').addEventListener('input', filterInventory);
+            document.getElementById('stock-status-filter').addEventListener('change', filterInventory);
+            document.getElementById('category-filter').addEventListener('change', filterInventory);
+            
+            // 初期表示
+            filteredInventory = inventory;
+            renderInventoryTable();
+        });
+    </script>
+    
+    <style>
+        .inventory-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .summary-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        .summary-card h3 {
+            font-size: 0.9rem;
+            color: #718096;
+            margin-bottom: 0.5rem;
+        }
+        
+        .summary-card p {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #2d3748;
+        }
+        
+        .adjust-buttons {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            margin: 1rem 0;
+        }
+        
+        .current-stock {
+            text-align: center;
+            padding: 1rem;
+            background: #f7fafc;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        
+        .current-stock h4 {
+            color: #2d3748;
+            font-size: 1.2rem;
+        }
+    </style>
+</body>
+</html>

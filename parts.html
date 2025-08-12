@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>部品マスタ - BOM管理システム</title>
+    <link rel="stylesheet" href="css/common.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- ナビゲーション -->
+        <nav class="navbar">
+            <div class="nav-brand">
+                <h1><i class="fas fa-cogs"></i> BOM管理システム</h1>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="dashboard.html" class="nav-link">ダッシュボード</a></li>
+                <li><a href="parts.html" class="nav-link active">部品マスタ</a></li>
+                <li><a href="bom.html" class="nav-link">BOM管理</a></li>
+                <li><a href="inventory.html" class="nav-link">在庫管理</a></li>
+                <li><a href="quote.html" class="nav-link">見積もり</a></li>
+                <li><a href="orders.html" class="nav-link">発注管理</a></li>
+            </ul>
+            <div class="nav-settings">
+                <button class="btn btn-sm btn-secondary" onclick="syncData()" title="データ同期">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="openGoogleSettingsModal()" title="Google連携設定">
+                    <i class="fab fa-google"></i>
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="openLineSettingsModal()" title="LINE通知設定">
+                    <i class="fas fa-bell"></i>
+                </button>
+            </div>
+        </nav>
+
+        <!-- メインコンテンツ -->
+        <main class="main-content">
+            <div class="page-header">
+                <h1 class="page-title">部品マスタ</h1>
+                <div class="page-actions">
+                    <button class="btn btn-secondary" onclick="exportParts()">
+                        <i class="fas fa-download"></i> エクスポート
+                    </button>
+                    <button class="btn btn-secondary" onclick="openCSVImportModal()">
+                        <i class="fas fa-file-csv"></i> CSVインポート
+                    </button>
+                    <button class="btn btn-secondary" onclick="openSheetsImportModal()">
+                        <i class="fab fa-google"></i> Sheetsインポート
+                    </button>
+                    <button class="btn btn-primary" onclick="openPartModal()">
+                        <i class="fas fa-plus"></i> 新規部品登録
+                    </button>
+                </div>
+            </div>
+
+            <!-- インポート・エクスポートセクション -->
+            <div class="import-export-section">
+                <h3><i class="fas fa-exchange-alt"></i> データ管理</h3>
+                <p class="text-muted">GoogleスプレッドシートまたはCSVファイルから部品データをインポートできます。</p>
+                <div class="import-export-actions">
+                    <button class="btn btn-secondary" onclick="openGoogleSheetsSync()">
+                        <i class="fab fa-google-drive"></i> Google連携設定
+                    </button>
+                    <button class="btn btn-secondary" onclick="showImportTemplate()">
+                        <i class="fas fa-file-download"></i> テンプレートダウンロード
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 検索・フィルター -->
+            <div class="search-filter">
+                <input type="text" id="part-search" placeholder="部品名・品番で検索..." class="search-input">
+                <select id="category-filter" class="filter-select">
+                    <option value="">すべてのカテゴリ</option>
+                    <option value="electronic">電子部品</option>
+                    <option value="mechanical">機械部品</option>
+                    <option value="material">材料</option>
+                </select>
+            </div>
+            
+            <!-- 部品テーブル -->
+            <div class="table-container">
+                <table id="parts-table" class="data-table">
+                    <thead>
+                        <tr>
+                            <th>品番</th>
+                            <th>部品名</th>
+                            <th>カテゴリ</th>
+                            <th>メーカー</th>
+                            <th>定価</th>
+                            <th>仕入れ値</th>
+                            <th>発注先</th>
+                            <th>リードタイム</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="parts-tbody">
+                        <!-- 部品データがここに表示されます -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- ページネーション -->
+            <div id="pagination-container"></div>
+        </main>
+    </div>
+
+    <!-- モーダル -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div id="modal-content" class="modal-content">
+            <!-- モーダル内容がここに動的に生成されます -->
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { 
+            getFirestore, 
+            collection, 
+            doc, 
+            addDoc, 
+            getDocs, 
+            updateDoc, 
+            deleteDoc, 
+            query, 
+            where, 
+            orderBy,
+            serverTimestamp 
+        } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getAuth } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        
+        // Firebase設定（ここに実際の設定を入力してください）
+        const firebaseConfig = {
+            apiKey: "your-api-key",
+            authDomain: "your-project.firebaseapp.com",
+            projectId: "your-project-id",
+            storageBucket: "your-project.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "your-app-id"
+        };
+
+        // Firebase初期化
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // グローバルに設定
+        window.db = db;
+        window.auth = auth;
+        
+        // Firestore関数をグローバルに設定
+        window.collection = collection;
+        window.doc = doc;
+        window.addDoc = addDoc;
+        window.getDocs = getDocs;
+        window.updateDoc = updateDoc;
+        window.deleteDoc = deleteDoc;
+        window.query = query;
+        window.where = where;
+        window.orderBy = orderBy;
+        window.serverTimestamp = serverTimestamp;
+    </script>
+    
+    <script src="js/common.js"></script>
+    <script src="js/import-export.js"></script>
+    <script src="order-functions.js"></script>
+    <script>
+        // 部品マスタページ固有の機能
+        
+        let pagination = null;
+        let filteredParts = [];
+        
+        // 部品モーダル
+        function openPartModal(partId = null) {
+            const part = partId ? parts.find(p => p.id === partId) : null;
+            const isEdit = !!part;
+            
+            const modalContent = `
+                <div class="modal-header">
+                    <h3 class="modal-title">${isEdit ? '部品編集' : '新規部品登録'}</h3>
+                    <button class="modal-close" onclick="closeModal()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form id="part-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">品番 *</label>
+                            <input type="text" id="part-number" class="form-input" required 
+                                   value="${part ? part.partNumber : ''}">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">部品名 *</label>
+                            <input type="text" id="part-name" class="form-input" required 
+                                   value="${part ? part.name : ''}">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">カテゴリ</label>
+                            <select id="part-category" class="form-select">
+                                <option value="electronic" ${part && part.category === 'electronic' ? 'selected' : ''}>電子部品</option>
+                                <option value="mechanical" ${part && part.category === 'mechanical' ? 'selected' : ''}>機械部品</option>
+                                <option value="material" ${part && part.category === 'material' ? 'selected' : ''}>材料</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">メーカー</label>
+                            <input type="text" id="part-manufacturer" class="form-input" 
+                                   value="${part ? part.manufacturer : ''}">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">定価</label>
+                            <input type="number" id="part-list-price" class="form-input" step="0.01" 
+                                   value="${part ? part.listPrice : ''}">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">仕入れ値</label>
+                            <input type="number" id="part-purchase-price" class="form-input" step="0.01" 
+                                   value="${part ? part.purchasePrice : ''}">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">発注先</label>
+                            <input type="text" id="part-supplier" class="form-input" 
+                                   value="${part ? part.supplier : ''}">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">リードタイム（日）</label>
+                            <input type="number" id="part-lead-time" class="form-input" 
+                                   value="${part ? part.leadTime : ''}">
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal()">キャンセル</button>
+                        <button type="submit" class="btn btn-primary">
+                            ${isEdit ? '更新' : '登録'}
+                        </button>
+                    </div>
+                </form>
+            `;
+            
+            showModal(modalContent);
+            
+            // フォーム送信イベントリスナー
+            const form = document.getElementById('part-form');
+            
+            // バリデーションルール定義
+            const validationRules = {
+                'part-number': [
+                    (value) => Validation.required(value, '品番'),
+                    (value) => Validation.minLength(value, 1, '品番'),
+                    (value) => Validation.maxLength(value, 50, '品番'),
+                    (value) => Validation.unique(value, parts, '品番', partId)
+                ],
+                'part-name': [
+                    (value) => Validation.required(value, '部品名'),
+                    (value) => Validation.minLength(value, 1, '部品名'),
+                    (value) => Validation.maxLength(value, 100, '部品名')
+                ],
+                'part-list-price': [
+                    (value) => value ? Validation.number(value, '定価') : null,
+                    (value) => value ? Validation.min(value, 0, '定価') : null
+                ],
+                'part-purchase-price': [
+                    (value) => value ? Validation.number(value, '仕入れ値') : null,
+                    (value) => value ? Validation.min(value, 0, '仕入れ値') : null
+                ],
+                'part-lead-time': [
+                    (value) => value ? Validation.number(value, 'リードタイム') : null,
+                    (value) => value ? Validation.min(value, 0, 'リードタイム') : null
+                ]
+            };
+            
+            // リアルタイムバリデーション設定
+            addRealTimeValidation(form, validationRules);
+            
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await savePart(partId);
+            });
+        }
+        
+        async function savePart(partId = null) {
+            try {
+                const partData = {
+                    partNumber: document.getElementById('part-number').value,
+                    name: document.getElementById('part-name').value,
+                    category: document.getElementById('part-category').value,
+                    manufacturer: document.getElementById('part-manufacturer').value,
+                    listPrice: parseFloat(document.getElementById('part-list-price').value) || 0,
+                    purchasePrice: parseFloat(document.getElementById('part-purchase-price').value) || 0,
+                    supplier: document.getElementById('part-supplier').value,
+                    leadTime: parseInt(document.getElementById('part-lead-time').value) || 0
+                };
+                
+                // バリデーション実行
+                const validationRules = {
+                    partNumber: [
+                        (value) => Validation.required(value, '品番'),
+                        (value) => Validation.maxLength(value, 50, '品番'),
+                        (value) => Validation.unique(value, parts, '品番', partId)
+                    ],
+                    name: [
+                        (value) => Validation.required(value, '部品名'),
+                        (value) => Validation.maxLength(value, 100, '部品名')
+                    ],
+                    listPrice: [
+                        (value) => Validation.min(value, 0, '定価')
+                    ],
+                    purchasePrice: [
+                        (value) => Validation.min(value, 0, '仕入れ値')
+                    ],
+                    leadTime: [
+                        (value) => Validation.min(value, 0, 'リードタイム')
+                    ]
+                };
+                
+                const errors = validateForm(partData, validationRules);
+                if (errors.length > 0) {
+                    showAlert(errors.join('\n'), 'error');
+                    return;
+                }
+                
+                if (partId) {
+                    partData.id = partId;
+                }
+                
+                const part = new Part(
+                    partData.partNumber,
+                    partData.name,
+                    partData.category,
+                    partData.manufacturer,
+                    partData.listPrice,
+                    partData.purchasePrice,
+                    partData.supplier,
+                    partData.leadTime
+                );
+                
+                if (partId) {
+                    part.id = partId;
+                }
+                
+                const savedId = await DatabaseService.savePart(part);
+                
+                if (!partId) {
+                    part.id = savedId;
+                    parts.push(part);
+                } else {
+                    const index = parts.findIndex(p => p.id === partId);
+                    if (index !== -1) {
+                        parts[index] = { ...part, id: partId };
+                    }
+                }
+                
+                closeModal();
+                updateCurrentView();
+                showAlert(partId ? '部品を更新しました' : '部品を登録しました', 'success');
+                
+            } catch (error) {
+                console.error('部品の保存に失敗しました:', error);
+                showAlert('部品の保存に失敗しました', 'error');
+            }
+        }
+        
+        async function deletePart(partId) {
+            if (!confirm('この部品を削除しますか？')) return;
+            
+            try {
+                await window.deleteDoc(window.doc(window.db, 'parts', partId));
+                parts = parts.filter(p => p.id !== partId);
+                updateCurrentView();
+                showAlert('部品を削除しました', 'success');
+            } catch (error) {
+                console.error('部品の削除に失敗しました:', error);
+                showAlert('部品の削除に失敗しました', 'error');
+            }
+        }
+        
+        function renderPartsTable() {
+            const tbody = document.getElementById('parts-tbody');
+            
+            if (!pagination) {
+                pagination = new Pagination(filteredParts, 50);
+            } else {
+                pagination.data = filteredParts;
+                pagination.totalPages = Math.ceil(filteredParts.length / pagination.itemsPerPage);
+            }
+            
+            const currentPageData = pagination.getCurrentPageData();
+            
+            if (currentPageData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted">部品が登録されていません</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = currentPageData.map(part => `
+                <tr>
+                    <td>${part.partNumber}</td>
+                    <td>${part.name}</td>
+                    <td>${getCategoryName(part.category)}</td>
+                    <td>${part.manufacturer || '-'}</td>
+                    <td>¥${part.listPrice.toLocaleString()}</td>
+                    <td>¥${part.purchasePrice.toLocaleString()}</td>
+                    <td>${part.supplier || '-'}</td>
+                    <td>${part.leadTime}日</td>
+                    <td>
+                        <button class="btn btn-sm btn-secondary" onclick="openPartModal('${part.id}')">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="deletePart('${part.id}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+            
+            // ページネーション表示
+            pagination.renderPagination('pagination-container');
+        }
+        
+        function filterParts() {
+            const searchTerm = document.getElementById('part-search').value.toLowerCase();
+            const categoryFilter = document.getElementById('category-filter').value;
+            
+            filteredParts = parts;
+            
+            if (searchTerm) {
+                filteredParts = filteredParts.filter(part => 
+                    part.name.toLowerCase().includes(searchTerm) || 
+                    part.partNumber.toLowerCase().includes(searchTerm)
+                );
+            }
+            
+            if (categoryFilter) {
+                filteredParts = filteredParts.filter(part => part.category === categoryFilter);
+            }
+            
+            // ページネーションをリセット
+            if (pagination) {
+                pagination.currentPage = 1;
+            }
+            
+            renderPartsTable();
+        }
+        
+        // インポートテンプレート
+        function showImportTemplate() {
+            const headers = ['品番', '部品名', 'カテゴリ', 'メーカー', '定価', '仕入れ値', '発注先', 'リードタイム'];
+            const sampleData = [
+                ['P001', 'サンプル部品1', 'electronic', 'サンプルメーカー', '1000', '800', 'サンプル商社', '7'],
+                ['P002', 'サンプル部品2', 'mechanical', 'サンプルメーカー2', '2000', '1600', 'サンプル商社2', '10']
+            ];
+            
+            exportToCSV([headers, ...sampleData], '部品マスタ_テンプレート.csv');
+            showAlert('テンプレートファイルをダウンロードしました', 'success');
+        }
+        
+        // Google Sheets連携設定
+        function openGoogleSheetsSync() {
+            const modalContent = `
+                <div class="modal-header">
+                    <h3 class="modal-title">Googleスプレッドシート連携</h3>
+                    <button class="modal-close" onclick="closeModal()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="sheets-sync">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        指定したGoogleスプレッドシートと定期的に同期することができます。
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">同期用スプレッドシートURL</label>
+                        <input type="url" id="sync-sheets-url" class="form-input" 
+                               placeholder="https://docs.google.com/spreadsheets/d/..."
+                               value="${localStorage.getItem('syncSheetsUrl') || ''}">
+                        <small class="form-help">部品マスタと同期するスプレッドシートのURLを設定してください</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">同期間隔</label>
+                        <select id="sync-interval" class="form-select">
+                            <option value="manual">手動のみ</option>
+                            <option value="5">5分ごと</option>
+                            <option value="15">15分ごと</option>
+                            <option value="30">30分ごと</option>
+                            <option value="60">1時間ごと</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>
+                        <button class="btn btn-secondary" onclick="testSheetsSync()">接続テスト</button>
+                        <button class="btn btn-primary" onclick="saveSheetsSync()">保存</button>
+                    </div>
+                </div>
+            `;
+            
+            showModal(modalContent);
+        }
+        
+        function saveSheetsSync() {
+            const url = document.getElementById('sync-sheets-url').value;
+            const interval = document.getElementById('sync-interval').value;
+            
+            localStorage.setItem('syncSheetsUrl', url);
+            localStorage.setItem('syncInterval', interval);
+            
+            showAlert('同期設定を保存しました', 'success');
+            closeModal();
+        }
+        
+        async function testSheetsSync() {
+            const url = document.getElementById('sync-sheets-url').value;
+            if (!url) {
+                showAlert('スプレッドシートURLを入力してください', 'warning');
+                return;
+            }
+            
+            try {
+                const spreadsheetId = extractSpreadsheetId(url);
+                await importFromGoogleSheets(spreadsheetId, 'A1:H10');
+                showAlert('スプレッドシートへの接続に成功しました', 'success');
+            } catch (error) {
+                showAlert('接続エラー: ' + error.message, 'error');
+            }
+        }
+        
+        // Google設定モーダルテスト関数
+        function testGoogleSettingsModal() {
+            console.log('Google設定ボタンがクリックされました');
+            if (typeof openGoogleSettingsModal === 'function') {
+                console.log('openGoogleSettingsModal関数が利用可能です');
+                openGoogleSettingsModal();
+            } else {
+                console.error('openGoogleSettingsModal関数が見つかりません');
+                showAlert('Google設定機能の読み込みに問題があります。ページを再読み込みしてください。', 'error');
+            }
+        }
+        
+        // 現在のビュー更新関数
+        function updateCurrentView() {
+            filterParts();
+        }
+        
+        // 初期化
+        document.addEventListener('DOMContentLoaded', async () => {
+            // データ読み込み
+            await loadInitialData();
+            
+            // 検索フィルターイベント
+            document.getElementById('part-search').addEventListener('input', filterParts);
+            document.getElementById('category-filter').addEventListener('change', filterParts);
+            
+            // 初期表示
+            filteredParts = parts;
+            renderPartsTable();
+            
+            // Google設定モーダルの動作確認
+            console.log('Google設定モーダル関数:', typeof openGoogleSettingsModal);
+            console.log('LINE設定モーダル関数:', typeof openLineSettingsModal);
+            
+            // 関数が定義されていない場合のエラーハンドリング
+            if (typeof openGoogleSettingsModal === 'undefined') {
+                console.error('openGoogleSettingsModal関数が定義されていません');
+                // グローバル関数として定義
+                window.openGoogleSettingsModal = function() {
+                    showAlert('Google設定機能を読み込み中です。しばらくお待ちください。', 'info');
+                    setTimeout(() => {
+                        if (typeof openGoogleSettingsModal === 'function') {
+                            openGoogleSettingsModal();
+                        } else {
+                            showAlert('Google設定機能の読み込みに失敗しました。', 'error');
+                        }
+                    }, 1000);
+                };
+            }
+        });
+    </script>
+</body>
+</html>

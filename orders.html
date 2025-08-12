@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>発注管理 - BOM管理システム</title>
+    <link rel="stylesheet" href="css/common.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- ナビゲーション -->
+        <nav class="navbar">
+            <div class="nav-brand">
+                <h1><i class="fas fa-cogs"></i> BOM管理システム</h1>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="dashboard.html" class="nav-link">ダッシュボード</a></li>
+                <li><a href="parts.html" class="nav-link">部品マスタ</a></li>
+                <li><a href="bom.html" class="nav-link">BOM管理</a></li>
+                <li><a href="inventory.html" class="nav-link">在庫管理</a></li>
+                <li><a href="quote.html" class="nav-link">見積もり</a></li>
+                <li><a href="orders.html" class="nav-link active">発注管理</a></li>
+            </ul>
+            <div class="nav-settings">
+                <button class="btn btn-sm btn-secondary" onclick="syncData()" title="データ同期">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="openGoogleSettingsModal()" title="Google連携設定">
+                    <i class="fab fa-google"></i>
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="openLineSettingsModal()" title="LINE通知設定">
+                    <i class="fas fa-bell"></i>
+                </button>
+            </div>
+        </nav>
+
+        <!-- メインコンテンツ -->
+        <main class="main-content">
+            <div class="page-header">
+                <h1 class="page-title">発注管理</h1>
+                <div class="page-actions">
+                    <button class="btn btn-primary" onclick="createOrdersFromAlerts()">
+                        <i class="fas fa-shopping-cart"></i> 一括発注作成
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 発注テーブル -->
+            <div class="table-container">
+                <table id="orders-table" class="data-table">
+                    <thead>
+                        <tr>
+                            <th>発注番号</th>
+                            <th>発注先</th>
+                            <th>部品数</th>
+                            <th>発注金額</th>
+                            <th>発注日</th>
+                            <th>納期</th>
+                            <th>ステータス</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="orders-tbody">
+                        <!-- 発注データがここに表示されます -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- ページネーション -->
+            <div id="pagination-container"></div>
+        </main>
+    </div>
+
+    <!-- モーダル -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div id="modal-content" class="modal-content">
+            <!-- モーダル内容がここに動的に生成されます -->
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { 
+            getFirestore, 
+            collection, 
+            doc, 
+            addDoc, 
+            getDocs, 
+            updateDoc, 
+            deleteDoc, 
+            query, 
+            where, 
+            orderBy,
+            serverTimestamp 
+        } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getAuth } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        
+        // Firebase設定（ここに実際の設定を入力してください）
+        const firebaseConfig = {
+            apiKey: "your-api-key",
+            authDomain: "your-project.firebaseapp.com",
+            projectId: "your-project-id",
+            storageBucket: "your-project.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "your-app-id"
+        };
+
+        // Firebase初期化
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // グローバルに設定
+        window.db = db;
+        window.auth = auth;
+        
+        // Firestore関数をグローバルに設定
+        window.collection = collection;
+        window.doc = doc;
+        window.addDoc = addDoc;
+        window.getDocs = getDocs;
+        window.updateDoc = updateDoc;
+        window.deleteDoc = deleteDoc;
+        window.query = query;
+        window.where = where;
+        window.orderBy = orderBy;
+        window.serverTimestamp = serverTimestamp;
+    </script>
+    
+    <script src="js/common.js"></script>
+    <script src="js/import-export.js"></script>
+    <script src="order-functions.js"></script>
+    <script>
+        // 発注管理ページ固有の機能
+        
+        let pagination = null;
+        
+        function renderOrdersTable() {
+            const tbody = document.getElementById('orders-tbody');
+            
+            if (!pagination) {
+                pagination = new Pagination(orders, 50);
+            } else {
+                pagination.data = orders;
+                pagination.totalPages = Math.ceil(orders.length / pagination.itemsPerPage);
+            }
+            
+            const currentPageData = pagination.getCurrentPageData();
+            
+            if (currentPageData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">発注がありません</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = currentPageData.map(order => `
+                <tr>
+                    <td>${order.orderNumber}</td>
+                    <td>${order.supplier}</td>
+                    <td>${order.parts.length}</td>
+                    <td>¥${order.totalAmount.toLocaleString()}</td>
+                    <td>${formatDate(order.orderDate)}</td>
+                    <td>${formatDate(order.expectedDeliveryDate)}</td>
+                    <td>
+                        <span class="status-badge status-${order.status}">
+                            ${getOrderStatusText(order.status)}
+                        </span>
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-secondary" onclick="viewOrderDetails('${order.id}')">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteOrder('${order.id}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+            
+            // ページネーション表示
+            pagination.renderPagination('pagination-container');
+        }
+        
+        // 発注削除関数
+        async function deleteOrder(orderId) {
+            if (!confirm('この発注を削除しますか？')) return;
+            
+            try {
+                await window.deleteDoc(window.doc(window.db, 'orders', orderId));
+                orders = orders.filter(o => o.id !== orderId);
+                renderOrdersTable();
+                showAlert('発注を削除しました', 'success');
+            } catch (error) {
+                console.error('発注の削除に失敗しました:', error);
+                showAlert('発注の削除に失敗しました', 'error');
+            }
+        }
+        
+        // 現在のビュー更新関数
+        function updateCurrentView() {
+            renderOrdersTable();
+        }
+        
+        // 初期化
+        document.addEventListener('DOMContentLoaded', async () => {
+            // データ読み込み
+            await loadInitialData();
+            
+            // 初期表示
+            renderOrdersTable();
+        });
+    </script>
+</body>
+</html>

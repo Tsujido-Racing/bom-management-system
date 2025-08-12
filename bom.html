@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BOM管理 - BOM管理システム</title>
+    <link rel="stylesheet" href="css/common.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- ナビゲーション -->
+        <nav class="navbar">
+            <div class="nav-brand">
+                <h1><i class="fas fa-cogs"></i> BOM管理システム</h1>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="dashboard.html" class="nav-link">ダッシュボード</a></li>
+                <li><a href="parts.html" class="nav-link">部品マスタ</a></li>
+                <li><a href="bom.html" class="nav-link active">BOM管理</a></li>
+                <li><a href="inventory.html" class="nav-link">在庫管理</a></li>
+                <li><a href="quote.html" class="nav-link">見積もり</a></li>
+                <li><a href="orders.html" class="nav-link">発注管理</a></li>
+            </ul>
+            <div class="nav-settings">
+                <button class="btn btn-sm btn-secondary" onclick="syncData()" title="データ同期">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="openGoogleSettingsModal()" title="Google連携設定">
+                    <i class="fab fa-google"></i>
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="openLineSettingsModal()" title="LINE通知設定">
+                    <i class="fas fa-bell"></i>
+                </button>
+            </div>
+        </nav>
+
+        <!-- メインコンテンツ -->
+        <main class="main-content">
+            <div class="page-header">
+                <h1 class="page-title">BOM管理</h1>
+                <div class="page-actions">
+                    <button class="btn btn-primary" onclick="openBomModal()">
+                        <i class="fas fa-plus"></i> 新規BOM作成
+                    </button>
+                </div>
+            </div>
+            
+            <!-- BOMリスト -->
+            <div class="bom-list">
+                <div id="bom-tree" class="bom-tree">
+                    <!-- BOM階層がここに表示されます -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- モーダル -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div id="modal-content" class="modal-content">
+            <!-- モーダル内容がここに動的に生成されます -->
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { 
+            getFirestore, 
+            collection, 
+            doc, 
+            addDoc, 
+            getDocs, 
+            updateDoc, 
+            deleteDoc, 
+            query, 
+            where, 
+            orderBy,
+            serverTimestamp 
+        } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getAuth } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        
+        // Firebase設定（ここに実際の設定を入力してください）
+        const firebaseConfig = {
+            apiKey: "your-api-key",
+            authDomain: "your-project.firebaseapp.com",
+            projectId: "your-project-id",
+            storageBucket: "your-project.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "your-app-id"
+        };
+
+        // Firebase初期化
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // グローバルに設定
+        window.db = db;
+        window.auth = auth;
+        
+        // Firestore関数をグローバルに設定
+        window.collection = collection;
+        window.doc = doc;
+        window.addDoc = addDoc;
+        window.getDocs = getDocs;
+        window.updateDoc = updateDoc;
+        window.deleteDoc = deleteDoc;
+        window.query = query;
+        window.where = where;
+        window.orderBy = orderBy;
+        window.serverTimestamp = serverTimestamp;
+    </script>
+    
+    <script src="js/common.js"></script>
+    <script src="js/import-export.js"></script>
+    <script src="bom-functions.js"></script>
+    <script>
+        // BOMページ固有の機能
+        
+        // BOMツリー表示
+        function renderBOMTree() {
+            const bomTree = document.getElementById('bom-tree');
+            
+            if (boms.length === 0) {
+                bomTree.innerHTML = '<div class="text-center text-muted">BOMが作成されていません</div>';
+                return;
+            }
+            
+            bomTree.innerHTML = boms.map(bom => `
+                <div class="bom-item level-0">
+                    <div class="bom-header">
+                        <div class="bom-title">
+                            <i class="fas fa-sitemap"></i>
+                            ${bom.name} (${bom.productName})
+                        </div>
+                        <div class="d-flex gap-1">
+                            <button class="btn btn-sm btn-secondary" onclick="openBomModal('${bom.id}')">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteBOM('${bom.id}')">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="bom-details">
+                        <div>バージョン: ${bom.version}</div>
+                        <div>総コスト: ¥${bom.totalCost.toLocaleString()}</div>
+                        <div>部品数: ${bom.items.length}</div>
+                        <div>作成日: ${formatDate(bom.createdAt)}</div>
+                    </div>
+                    <div class="bom-items">
+                        ${bom.items.map(item => {
+                            const part = parts.find(p => p.id === item.partId);
+                            return part ? `
+                                <div class="bom-item level-1">
+                                    <div class="bom-header">
+                                        <div class="bom-title">
+                                            <i class="fas fa-cube"></i>
+                                            ${part.partNumber} - ${part.name} (${item.quantity}個)
+                                        </div>
+                                    </div>
+                                    <div class="bom-details">
+                                        <div>使用タイミング: ${getUsageTimingText(item)}</div>
+                                        <div>単価: ¥${part.purchasePrice.toLocaleString()}</div>
+                                        <div>小計: ¥${(part.purchasePrice * item.quantity).toLocaleString()}</div>
+                                    </div>
+                                </div>
+                            ` : '';
+                        }).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // 現在のビュー更新関数
+        function updateCurrentView() {
+            renderBOMTree();
+        }
+        
+        // 初期化
+        document.addEventListener('DOMContentLoaded', async () => {
+            // データ読み込み
+            await loadInitialData();
+            
+            // 初期表示
+            renderBOMTree();
+        });
+    </script>
+    
+    <style>
+        /* BOM ツリー */
+        .bom-tree {
+            background: white;
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }
+
+        .bom-item {
+            margin: 0.5rem 0;
+            padding: 1rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .bom-item:hover {
+            border-color: #667eea;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+        }
+
+        .bom-item.level-0 { margin-left: 0; }
+        .bom-item.level-1 { margin-left: 2rem; }
+        .bom-item.level-2 { margin-left: 4rem; }
+        .bom-item.level-3 { margin-left: 6rem; }
+
+        .bom-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .bom-title {
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .bom-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            font-size: 0.9rem;
+            color: #718096;
+        }
+    </style>
+</body>
+</html>

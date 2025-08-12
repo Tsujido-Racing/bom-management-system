@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ダッシュボード - BOM管理システム</title>
+    <link rel="stylesheet" href="css/common.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- ナビゲーション -->
+        <nav class="navbar">
+            <div class="nav-brand">
+                <h1><i class="fas fa-cogs"></i> BOM管理システム</h1>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="dashboard.html" class="nav-link active">ダッシュボード</a></li>
+                <li><a href="parts.html" class="nav-link">部品マスタ</a></li>
+                <li><a href="bom.html" class="nav-link">BOM管理</a></li>
+                <li><a href="inventory.html" class="nav-link">在庫管理</a></li>
+                <li><a href="quote.html" class="nav-link">見積もり</a></li>
+                <li><a href="orders.html" class="nav-link">発注管理</a></li>
+            </ul>
+            <div class="nav-settings">
+                <button class="btn btn-sm btn-secondary" onclick="syncData()" title="データ同期">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="openGoogleSettingsModal()" title="Google連携設定">
+                    <i class="fab fa-google"></i>
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="openLineSettingsModal()" title="LINE通知設定">
+                    <i class="fas fa-bell"></i>
+                </button>
+            </div>
+        </nav>
+
+        <!-- メインコンテンツ -->
+        <main class="main-content">
+            <div class="page-header">
+                <h1 class="page-title">ダッシュボード</h1>
+                <div class="page-actions">
+                    <button class="btn btn-secondary" onclick="location.reload()">
+                        <i class="fas fa-refresh"></i> 更新
+                    </button>
+                </div>
+            </div>
+
+            <!-- ダッシュボードカード -->
+            <div class="dashboard-grid">
+                <div class="dashboard-card">
+                    <div class="card-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                    <div class="card-content">
+                        <h3>発注アラート</h3>
+                        <p class="card-number" id="alert-count">0</p>
+                    </div>
+                </div>
+                <div class="dashboard-card">
+                    <div class="card-icon"><i class="fas fa-boxes"></i></div>
+                    <div class="card-content">
+                        <h3>在庫不足</h3>
+                        <p class="card-number" id="low-stock-count">0</p>
+                    </div>
+                </div>
+                <div class="dashboard-card">
+                    <div class="card-icon"><i class="fas fa-file-invoice"></i></div>
+                    <div class="card-content">
+                        <h3>見積もり件数</h3>
+                        <p class="card-number" id="quote-count">0</p>
+                    </div>
+                </div>
+                <div class="dashboard-card">
+                    <div class="card-icon"><i class="fas fa-chart-line"></i></div>
+                    <div class="card-content">
+                        <h3>今月の発注額</h3>
+                        <p class="card-number" id="monthly-orders">¥0</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 在庫アラート -->
+            <div class="dashboard-section" id="inventory-alerts-section" style="display: none;">
+                <h3>在庫アラート</h3>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>品番</th>
+                                <th>部品名</th>
+                                <th>現在庫数</th>
+                                <th>発注点</th>
+                                <th>ステータス</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="alerts-tbody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- 最近のアクティビティ -->
+            <div class="dashboard-section">
+                <h3>最近のアクティビティ</h3>
+                <div class="recent-activities">
+                    <div id="activity-list" class="activity-list">
+                        <!-- アクティビティがここに表示されます -->
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- モーダル -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div id="modal-content" class="modal-content">
+            <!-- モーダル内容がここに動的に生成されます -->
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { 
+            getFirestore, 
+            collection, 
+            doc, 
+            addDoc, 
+            getDocs, 
+            updateDoc, 
+            deleteDoc, 
+            query, 
+            where, 
+            orderBy,
+            serverTimestamp 
+        } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getAuth } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        
+        // Firebase設定（ここに実際の設定を入力してください）
+        const firebaseConfig = {
+            apiKey: "your-api-key",
+            authDomain: "your-project.firebaseapp.com",
+            projectId: "your-project-id",
+            storageBucket: "your-project.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "your-app-id"
+        };
+
+        // Firebase初期化
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // グローバルに設定
+        window.db = db;
+        window.auth = auth;
+        
+        // Firestore関数をグローバルに設定
+        window.collection = collection;
+        window.doc = doc;
+        window.addDoc = addDoc;
+        window.getDocs = getDocs;
+        window.updateDoc = updateDoc;
+        window.deleteDoc = deleteDoc;
+        window.query = query;
+        window.where = where;
+        window.orderBy = orderBy;
+        window.serverTimestamp = serverTimestamp;
+    </script>
+    
+    <script src="js/common.js"></script>
+    <script src="js/import-export.js"></script>
+    <script src="order-functions.js"></script>
+    <script>
+        // ダッシュボード固有の機能
+        
+        // ダッシュボード更新
+        function updateDashboard() {
+            // 発注アラート数を計算
+            const lowStockItems = inventory.filter(item => item.status === 'low' || item.status === 'out');
+            document.getElementById('alert-count').textContent = lowStockItems.length;
+            
+            // 在庫不足数を更新
+            document.getElementById('low-stock-count').textContent = lowStockItems.length;
+            
+            // 見積もり件数を更新
+            document.getElementById('quote-count').textContent = quotes.length;
+            
+            // 今月の発注額を計算
+            const currentMonth = new Date().getMonth();
+            const currentYear = new Date().getFullYear();
+            const monthlyOrderAmount = orders
+                .filter(order => {
+                    const orderDate = new Date(order.orderDate);
+                    return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
+                })
+                .reduce((total, order) => total + order.totalAmount, 0);
+            
+            document.getElementById('monthly-orders').textContent = `¥${monthlyOrderAmount.toLocaleString()}`;
+            
+            // 在庫アラートテーブルを更新
+            updateInventoryAlertsTable(lowStockItems);
+            
+            // 最近のアクティビティを更新
+            updateRecentActivities();
+        }
+        
+        function updateInventoryAlertsTable(lowStockItems) {
+            const alertsSection = document.getElementById('inventory-alerts-section');
+            const tbody = document.getElementById('alerts-tbody');
+            
+            if (lowStockItems.length === 0) {
+                alertsSection.style.display = 'none';
+                return;
+            }
+            
+            alertsSection.style.display = 'block';
+            
+            tbody.innerHTML = lowStockItems.map(item => {
+                const part = parts.find(p => p.id === item.partId);
+                if (!part) return '';
+                
+                return `
+                    <tr>
+                        <td>${part.partNumber}</td>
+                        <td>${part.name}</td>
+                        <td>${item.currentStock}</td>
+                        <td>${item.reorderPoint}</td>
+                        <td>
+                            <span class="status-badge status-${item.status}">
+                                ${getStatusText(item.status)}
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-primary" onclick="createQuickOrder('${item.partId}')">
+                                <i class="fas fa-shopping-cart"></i> 発注
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+        
+        function updateRecentActivities() {
+            const activityList = document.getElementById('activity-list');
+            const activities = [];
+            
+            // 最近の発注を追加
+            orders.slice(-5).forEach(order => {
+                activities.push({
+                    icon: 'shopping-cart',
+                    text: `発注 ${order.orderNumber} を作成しました`,
+                    time: formatDateTime(order.createdAt),
+                    timestamp: new Date(order.createdAt)
+                });
+            });
+            
+            // 最近の見積もりを追加
+            quotes.slice(-3).forEach(quote => {
+                activities.push({
+                    icon: 'file-invoice',
+                    text: `見積もり ${quote.quoteNumber} を作成しました`,
+                    time: formatDateTime(quote.createdAt),
+                    timestamp: new Date(quote.createdAt)
+                });
+            });
+            
+            // 時間順にソート
+            activities.sort((a, b) => b.timestamp - a.timestamp);
+            
+            activityList.innerHTML = activities.slice(0, 10).map(activity => `
+                <div class="activity-item">
+                    <div class="activity-icon">
+                        <i class="fas fa-${activity.icon}"></i>
+                    </div>
+                    <div class="activity-text">${activity.text}</div>
+                    <div class="activity-time">${activity.time}</div>
+                </div>
+            `).join('');
+            
+            if (activities.length === 0) {
+                activityList.innerHTML = '<div class="text-center text-muted">アクティビティがありません</div>';
+            }
+        }
+        
+        // クイック発注機能
+        function createQuickOrder(partId) {
+            const part = parts.find(p => p.id === partId);
+            const inventoryRecord = inventory.find(i => i.partId === partId);
+            
+            if (!part || !inventoryRecord) {
+                showAlert('部品情報が見つかりません', 'error');
+                return;
+            }
+            
+            const quantity = Math.max(inventoryRecord.reorderPoint - inventoryRecord.currentStock, inventoryRecord.minStock);
+            
+            const orderData = {};
+            orderData[part.supplier] = [{
+                partId: partId,
+                quantity: quantity,
+                unitPrice: part.purchasePrice
+            }];
+            
+            confirmOrders(JSON.stringify(orderData));
+        }
+        
+        // 現在のビュー更新関数
+        function updateCurrentView() {
+            updateDashboard();
+        }
+        
+        // 初期化
+        document.addEventListener('DOMContentLoaded', async () => {
+            // データ読み込み
+            await loadInitialData();
+            
+            // ダッシュボード更新
+            updateDashboard();
+            
+            // 定期更新（30秒ごと）
+            setInterval(updateDashboard, 30000);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+[build]
+  # ビルドコマンド（この場合は静的ファイルなので不要）
+  command = ""
+  
+  # 公開ディレクトリ
+  publish = "."
+
+[build.environment]
+  # Node.jsのバージョン指定（必要に応じて）
+  NODE_VERSION = "18"
+
+# リダイレクト設定（SPAの場合）
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# ヘッダー設定（セキュリティ向上）
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Firebase設定用の環境変数（Netlifyの管理画面で設定）
+# FIREBASE_API_KEY
+# FIREBASE_AUTH_DOMAIN  
+# FIREBASE_PROJECT_ID
+# FIREBASE_STORAGE_BUCKET
+# FIREBASE_MESSAGING_SENDER_ID
+# FIREBASE_APP_ID
