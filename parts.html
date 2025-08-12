@@ -134,17 +134,19 @@
         
         // Firebase設定を環境変数から取得
         const firebaseConfig = {
-            apiKey: window.FIREBASE_API_KEY || "your-api-key",
-            authDomain: window.FIREBASE_AUTH_DOMAIN || "your-project.firebaseapp.com",
-            projectId: window.FIREBASE_PROJECT_ID || "your-project-id",
-            storageBucket: window.FIREBASE_STORAGE_BUCKET || "your-project.appspot.com",
-            messagingSenderId: window.FIREBASE_MESSAGING_SENDER_ID || "123456789",
-            appId: window.FIREBASE_APP_ID || "your-app-id"
+            apiKey: window.FIREBASE_API_KEY || "AIzaSyDT3HapGcz2iF-WiYIfiytjZCtc3RbW3B0",
+            authDomain: window.FIREBASE_AUTH_DOMAIN || "bom-system-cusor.firebaseapp.com",
+            projectId: window.FIREBASE_PROJECT_ID || "bom-system-cusor",
+            storageBucket: window.FIREBASE_STORAGE_BUCKET || "bom-system-cusor.firebasestorage.app",
+            messagingSenderId: window.FIREBASE_MESSAGING_SENDER_ID || "522573986412",
+            appId: window.FIREBASE_APP_ID || "1:522573986412:web:7b3e9f287f0e9083a7f649",
+            measurementId: window.FIREBASE_MEASUREMENT_ID || "G-192206V835"
         };
 
         // Firebase設定の検証
         const isValidConfig = firebaseConfig.projectId !== "your-project-id" && 
-                             firebaseConfig.apiKey !== "your-api-key";
+                             firebaseConfig.apiKey !== "your-api-key" &&
+                             firebaseConfig.projectId === "bom-system-cusor";
 
         let db = null;
         let auth = null;
@@ -180,6 +182,7 @@
         window.serverTimestamp = serverTimestamp;
     </script>
     
+    <script src="js/firebase-config.js"></script>
     <script src="js/common.js"></script>
     <script src="js/import-export.js"></script>
     <script src="order-functions.js"></script>
